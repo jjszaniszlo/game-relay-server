@@ -4,7 +4,7 @@ using System.Linq;
 using Godot;
 using Newtonsoft.Json;
 
-namespace HorrorGameServerRelay;
+namespace horrorgameserverrelay;
 
 public partial class Server : Node
 {

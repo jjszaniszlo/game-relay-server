@@ -1,6 +1,6 @@
 ﻿using Godot;
 
-namespace HorrorGameServerRelay;
+namespace horrorgameserverrelay;
 
 public partial class Packet : RefCounted
 {

@@ -1,4 +1,4 @@
-﻿namespace HorrorGameServerRelay;
+﻿namespace horrorgameserverrelay;
 
 public enum Message
 {

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace HorrorGameServerRelay;
+namespace horrorgameserverrelay;
 
 public class Option<T> : IEnumerable<T>
 {

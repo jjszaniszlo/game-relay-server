@@ -1,7 +1,7 @@
 using Godot;
 using Newtonsoft.Json;
 
-namespace HorrorGameServerRelay;
+namespace horrorgameserverrelay;
 
 public partial class Peer : RefCounted
 {

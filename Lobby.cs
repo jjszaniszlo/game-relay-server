@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using Godot;
 
-namespace HorrorGameServerRelay;
+namespace horrorgameserverrelay;
 
 public partial class Lobby : RefCounted
 {
