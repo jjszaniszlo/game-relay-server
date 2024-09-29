@@ -15,7 +15,7 @@ public partial class Server : Node
 
     private readonly Stack<Lobby> _removeLobbyStack;
     private readonly Stack<Peer> _removePeerStack;
-    
+
     public Server()
     {
         _server = new TcpServer();
@@ -25,9 +25,9 @@ public partial class Server : Node
 
         _removeLobbyStack = new Stack<Lobby>();
         _removePeerStack = new Stack<Peer>();
-        
+
         var error = _server.Listen(_port);
-        
+
         GD.Print(error is Error.Ok ? "[Log] Server Created!" : $"[Error] Cannot create server! ErrCode: {error}\n");
     }
 
@@ -50,11 +50,11 @@ public partial class Server : Node
         }
 
         var disconnectedPeers = (
-                from Lobby lobby in _lobbies
-                from Peer lobbyPeer in lobby.Peers
-                where !_peers.ContainsValue(lobbyPeer)
-                select lobbyPeer
-            ).ToList();
+            from Lobby lobby in _lobbies
+            from Peer lobbyPeer in lobby.Peers
+            where !_peers.ContainsValue(lobbyPeer)
+            select lobbyPeer
+        ).ToList();
 
         foreach (var disconnectedPeer in disconnectedPeers)
         {
@@ -69,7 +69,12 @@ public partial class Server : Node
 
                     foreach (var peer in searchedLobby.Peers.Where(peer => disconnectedPeer != peer))
                     {
-                        peer.SendMessage(Message.LeaveLobby, disconnectedPeer.Id, disconnectedPeer.UserName);
+                        peer.SendPacket(new LeaveLobbyResponsePacket
+                        {
+                            Id = disconnectedPeer.Id,
+                            LeavingPeer = disconnectedPeer,
+                            SuccessMessage = $"Peer {disconnectedPeer.Username}:{disconnectedPeer.Id} has left!",
+                        });
                     }
 
                     searchedLobby.Peers.Remove(disconnectedPeer);
@@ -82,7 +87,7 @@ public partial class Server : Node
                 })
                 .DefaultIfEmpty(false)
                 .Single();
-            
+
             if (!foundLobby)
             {
                 GD.Print($"[Error] Could not find lobby to disconnect peer {disconnectedPeer.Id} from!");
@@ -112,97 +117,99 @@ public partial class Server : Node
             }
 
             if (peer.WebSocketPeer.GetReadyState() is not WebSocketPeer.State.Closed) continue;
-            
+
             GD.Print($"[Log] Peer {peer.Id} has disconnected!\n");
             _removePeerStack.Push(peer);
         }
     }
 
+    // Parses packets coming in from Peer and sends out an appropriate response.
     private bool ParseMessage(Peer fromPeer)
     {
         var packetBuffer = fromPeer.WebSocketPeer.GetPacket().GetStringFromUtf8();
 
-        if (packetBuffer == "Test msg!")
-        {
-            return true;
-        }
-        
-        GD.Print(packetBuffer);
+        var packet = JsonConvert.DeserializeObject<BasicPacket>(packetBuffer, new JsonPacketConverter());
 
-        var packet = JsonConvert.DeserializeObject<Packet>(packetBuffer);
-        
         if (packet is null)
         {
             return false;
         }
 
-        if (packet.type == Message.UserInfo)
+        if (packet is UserInfoPacket userInfoPacket)
         {
-            fromPeer.SendMessage(Message.UserInfo, fromPeer.Id, packet.data);
-            fromPeer.UserName = packet.data;
-            GD.Print($"[Log] Received Username: {fromPeer.UserName}");
-        }
-        else if (packet.type == Message.LobbyList)
-        {
-            var spaceSeperatedLobbyNames = string.Join(" ", _lobbies.Select(e => e.Name).ToArray());
-            fromPeer.SendMessage(Message.LobbyList, 0, spaceSeperatedLobbyNames);
-            GD.Print($"[Log] Lobby List sent!");
-        }
-        else if (packet.type == Message.CreateLobby)
-        {
-            foreach (var lobby in from Lobby lobby in _lobbies where lobby.Name != packet.data select lobby)
+            fromPeer.SendPacket(new BasicResponsePacket
             {
-                GD.Print($"[Error] Trying to create new lobby with name {lobby.Name} but it already exists!");
-                fromPeer.SendMessage(Message.CreateLobby, 0, "INVALID");
-                return true;
-            }
-
-            // create new lobby
-            var newLobby = new Lobby(packet.data);
-            _lobbies.Add(newLobby);
-
-            // add the peer who created the lobby to the lobby
-            fromPeer.IsHost = true;
-            newLobby.Peers.Add(fromPeer);
-
-            fromPeer.WebSocketPeer.SendText(Json.Stringify($"FEEDBACK: New lobby name: {packet.data}"));
-            fromPeer.SendMessage(Message.CreateLobby, 0, packet.data);
-            GD.Print($"[Log] Created lobby successfully! Name: {packet.data}");
+                Message = Message.UserInfo,
+                Success = true,
+                SuccessMessage = $"Server received user information for {userInfoPacket.Username}!",
+            });
+            fromPeer.Username = userInfoPacket.Username;
+            GD.Print($"[Log] Received Username: {fromPeer.Username}");
         }
-        else if (packet.type == Message.JoinLobby)
+        else if (packet is JoinLobbyPacket joinLobbyPacket)
         {
-            fromPeer.WebSocketPeer.SendText(Json.Stringify($"FEEDBACK: Join lobby name: {packet.data}"));
-            bool foundLobby = FindLobbyByName(packet.data)
+            //     fromPeer.WebSocketPeer.SendText(Json.Stringify($"FEEDBACK: Join lobby name: {packet.Data}"));
+            bool foundLobby = FindLobbyByCode(joinLobbyPacket.LobbyCode)
                 .Select(lobby =>
                 {
-                    fromPeer.SendMessage(Message.Host, lobby.Peers.First().Id, lobby.Peers.First().UserName);
-                    fromPeer.SendMessage(Message.JoinLobby, 0, $"LOBBY_NAME{lobby.Name}");
+                    GD.Print(
+                        $"[Log] Lobby '{joinLobbyPacket.LobbyCode}' requested to be joined by {fromPeer.Username}:{fromPeer.Id}");
 
+                    fromPeer.SendPacket(new HostResponsePacket
+                    {
+                        Id = 0,
+                        HostPeer = lobby.Peers.First()
+                    });
+
+                    // send response packet that lobby was found
+                    fromPeer.SendPacket(new BasicResponsePacket
+                    {
+                        Message = Message.JoinLobby,
+                        Id = 0,
+                        SuccessMessage = $"Lobby '{lobby.LobbyCode}' found!",
+                    });
+
+                    // for each lobby peer send the information of the peer that is joining.
                     foreach (var lobbyPeer in lobby.Peers)
                     {
-                        lobbyPeer.SendMessage(Message.JoinLobby, fromPeer.Id, $"NEW_JOINED_USER_NAME{fromPeer.UserName}");
-                        fromPeer.SendMessage(
-                            Message.JoinLobby,
-                            lobbyPeer.Id,
-                            $"EXISTING_USER_NAME{lobbyPeer.UserName}");
+                        lobbyPeer.SendPacket(new JoinLobbyExistingUserResponsePacket
+                        {
+                            Id = fromPeer.Id,
+                            JoiningPeer = fromPeer,
+                            SuccessMessage = $"Player {fromPeer.Username}:{fromPeer.Id} joined!"
+                        });
                     }
 
+                    var peersString = string.Join(", ", lobby.Peers.Select(e => e.Username).ToList());
+                    fromPeer.SendPacket(new JoinLobbyJoiningUserResponsePacket
+                    {
+                        Id = 0,
+                        LobbyPeers = lobby.Peers,
+                        SuccessMessage = $"Joined lobby with peers: [{peersString}]",
+                    });
+
                     lobby.Peers.Add(fromPeer);
-                    GD.Print($"Lobby {packet.data} Requested to be joined!");
 
                     return true;
                 })
                 .DefaultIfEmpty(false)
                 .Single();
 
-            if (foundLobby) return true;
-            
-            GD.Print($"Lobby ${packet.data} Requested to be joined!\n[Error] No such lobby!");
-            fromPeer.SendMessage(Message.JoinLobby, 0, "INVALID");
+            if (!foundLobby)
+            {
+                GD.Print(
+                    $"[Error] Peer {fromPeer.Username}:{fromPeer.Id} attempted to join lobby '{joinLobbyPacket.LobbyCode}', but no such lobby exists!");
+                fromPeer.SendPacket(new JoinLobbyJoiningUserResponsePacket
+                {
+                    Id = 0,
+                    Success = false,
+                    Error = $"Lobby '{joinLobbyPacket.LobbyCode}' does not exist!",
+                });
+            }
         }
-        else if (packet.type == Message.LeaveLobby)
+        else if (packet is LeaveLobbyPacket leaveLobbyPacket)
         {
-            var foundLobby = FindLobbyByName(packet.data)
+            var foundLobby = FindLobbyByCode(leaveLobbyPacket.LobbyCode)
                 .Select(lobby =>
                 {
                     switch (lobby.Peers.Count)
@@ -217,9 +224,15 @@ public partial class Server : Node
                             foreach (var lobbyPeer in lobby.Peers.ToList())
                             {
                                 lobbyPeer.IsHost = false;
-                                if (lobbyPeer.UserName != fromPeer.UserName)
+                                if (lobbyPeer.Username != fromPeer.Username)
                                 {
-                                    lobbyPeer.SendMessage(Message.LeaveLobby, fromPeer.Id, fromPeer.UserName);
+                                    // send a message to all lobby peer's that the peer who sent this message has disconnected.
+                                    lobbyPeer.SendPacket(new LeaveLobbyResponsePacket
+                                    {
+                                        Id = fromPeer.Id,
+                                        LeavingPeer = fromPeer,
+                                        SuccessMessage = $"Peer {fromPeer.Username}:{fromPeer.Id} has disconnected from lobby '{lobby.LobbyCode}'",
+                                    });
                                 }
                                 else
                                 {
@@ -229,12 +242,16 @@ public partial class Server : Node
 
                             lobby.Peers.First().IsHost = true;
 
+                            var host = lobby.Peers.First();
                             foreach (var lobbyPeer in lobby.Peers)
                             {
-                                lobbyPeer.SendMessage(
-                                    Message.Host,
-                                    lobby.Peers.First().Id,
-                                    lobby.Peers.First().UserName);
+                                lobbyPeer.SendPacket(new HostResponsePacket
+                                {
+                                    Id = 0,
+                                    HostPeer = host,
+                                    SuccessMessage =
+                                        $"Lobby {lobby.LobbyCode}'s host has changed to {host.Username}:{host.Id}!",
+                                });
                             }
 
                             break;
@@ -251,101 +268,165 @@ public partial class Server : Node
                 GD.Print("[Error] Could not find lobby to disconnect peer from!");
             }
         }
-        else if (packet.type == Message.LobbyMessage)
+        else if (packet is LobbyMessagePacket lobbyMessagePacket)
         {
             var relayMessagePeers = _lobbies
                 .Select(lobby => lobby.Peers)
                 .Single(p => p.Contains(fromPeer));
-
+        
             foreach (var p in relayMessagePeers)
             {
-                p.SendMessage(Message.LobbyMessage, 0, packet.data);
+                p.SendPacket(new LobbyMessagePacket
+                {
+                    Id = 0,
+                    LobbyMessage = lobbyMessagePacket.LobbyMessage,
+                    PeerSender = fromPeer
+                });
             }
         }
-        else if (packet.type == Message.StartSession)
+        else if (packet is RtcAnswerPacket rtcAnswerPacket)
         {
-            var foundLobby = FindLobbyByPeer(fromPeer)
-                .Select(lobby =>
+            var foundPeer = FindPeerById(rtcAnswerPacket.AnswerId)
+                .Select(foundPeer =>
                 {
-                    var peerIDs = string.Join("***", lobby.Peers.Select(p => p.Id));
-
-                    foreach (var lobbyPeer in lobby.Peers)
+                    foundPeer.SendPacket(new RtcAnswerPacket
                     {
-                        lobbyPeer.SendMessage(Message.StartSession, 0, peerIDs);
-                    }
+                        Id = fromPeer.Id,
+                        AnswerType = rtcAnswerPacket.AnswerType,
+                        AnswerSdp = rtcAnswerPacket.AnswerSdp,
+                        AnswerId = rtcAnswerPacket.AnswerId,
+                    });
                     
-                    GD.Print($"[Log] Starting session from lobby: {lobby.Name}");
-                    return true;
-                })
-                .Single();
-
-            if (!foundLobby)
-            {
-                GD.Print("[Error] Could not find lobby to start session from!");
-            }
-        }
-        else if (packet.type == Message.Offer)
-        {
-            var splitData = packet.data.Split("***", 3);
-            var sendId = splitData[2].ToInt();
-            var foundPeer = FindPeerById(sendId)
-                .Select(foundPeer =>
-                {
-                    foundPeer.SendMessage(packet.type, fromPeer.Id, packet.data);
-                    GD.Print($"[Log] Relaying Offer to peer {fromPeer.Id}");
-                    return true;
-                })
-                .DefaultIfEmpty(false)
-                .Single();
-
-            if (foundPeer) return true;
-            
-            GD.Print("[Error] Offer received but could not find matching peer!");
-            return false;
-        }
-        else if (packet.type == Message.Answer)
-        {
-            var splitData = packet.data.Split("***", 3);
-            var sendId = splitData[2].ToInt();
-            var foundPeer = FindPeerById(sendId)
-                .Select(foundPeer =>
-                {
-                    foundPeer.SendMessage(packet.type, fromPeer.Id, packet.data);
                     GD.Print($"[Log] Relaying Answer to peer {fromPeer.Id}");
                     return true;
                 })
                 .DefaultIfEmpty(false)
                 .Single();
-
+        
             if (foundPeer) return true;
             
             GD.Print("[Error] Answer received but could not find matching peer!");
             return false;
         }
-        else if (packet.type == Message.InteractiveConnectivityEstablishment)
+        else if (packet is RtcOfferPacket rtcOfferPacket)
         {
-            var splitData = packet.data.Split("***", 4);
-            var sendId = splitData[3].ToInt();
-            var foundPeer = FindPeerById(sendId)
+            var foundPeer = FindPeerById(rtcOfferPacket.OfferId)
                 .Select(foundPeer =>
                 {
-                    foundPeer.SendMessage(packet.type, fromPeer.Id, packet.data);
+                    foundPeer.SendPacket(new RtcOfferPacket
+                    {
+                        Id = fromPeer.Id,
+                        OfferType = rtcOfferPacket.OfferType,
+                        OfferSdp = rtcOfferPacket.OfferSdp,
+                        OfferId = rtcOfferPacket.OfferId,
+                    });
+                    GD.Print($"[Log] Relaying Offer to peer {fromPeer.Id}");
+                    return true;
+                })
+                .DefaultIfEmpty(false)
+                .Single();
+            
+            if (foundPeer) return true;
+            
+            GD.Print("[Error] Offer received but could not find matching peer!");
+            return false;
+        }
+        else if (packet is RtcIcePacket rtcIcePacket)
+        {
+            var foundPeer = FindPeerById(rtcIcePacket.IceId)
+                .Select(foundPeer =>
+                {
+                    foundPeer.SendPacket(new RtcIcePacket
+                    {
+                        Id = fromPeer.Id,
+                        Media = rtcIcePacket.Media,
+                        Name = rtcIcePacket.Name,
+                        Index = rtcIcePacket.Index,
+                        IceId = rtcIcePacket.IceId
+                    });
                     GD.Print($"[Log] Relaying ICE to peer {fromPeer.Id}");
                     return true;
                 })
                 .DefaultIfEmpty(false)
                 .Single();
-
+            
             if (foundPeer) return true;
             
             GD.Print("[Error] ICE received but could not find matching peer!");
             return false;
         }
-        else
+        else // handle basic packets here
         {
-            return false;
-        }
+            switch (packet.Message)
+            {
+                case Message.LobbyList:
+                    GD.Print($"[Log] Peer {fromPeer.Username}:{fromPeer.Id} requested lobby list.  Sending...");
+                    fromPeer.SendPacket(new LobbyListResponsePacket
+                    {
+                        Id = 0, // id 0 signifies that the relay server itself is the source
+                        LobbyList = _lobbies
+                    });
+                    break;
+                case Message.CreateLobby:
+                {
+                    var code = Lobby.GenerateRandomLobbyCode();
+                    while (!Lobby.TakenLobbyNames.Contains(code)) code = Lobby.GenerateRandomLobbyCode();
+                    Lobby.TakenLobbyNames.Add(code);
 
+                    GD.Print($"[Log] Generated lobby code: {code}");
+
+                    // create new lobby
+                    var lobby = new Lobby(code);
+                    _lobbies.Add(lobby);
+
+                    // add peer who created lobby to the lobby
+                    fromPeer.IsHost = true;
+                    lobby.Peers.Add(fromPeer);
+
+                    //fromPeer.WebSocketPeer.SendText(Json.Stringify($"FEEDBACK: New lobby name: {packet.Data}"));
+
+                    fromPeer.SendPacket(new CreateLobbyResponsePacket
+                    {
+                        Id = 0,
+                        LobbyCode = code,
+                    });
+
+                    GD.Print($"[Log] Sent lobby code: '{code}' to the peer who requested it!");
+
+                    break;
+                }
+                case Message.StartSession:
+                {
+                    var foundLobby = FindLobbyByPeer(fromPeer)
+                        .Select(lobby =>
+                        {
+                            var peerIDs = string.Join(", ", lobby.Peers.Select(p => p.Id));
+                    
+                            foreach (var lobbyPeer in lobby.Peers)
+                            {
+                                lobbyPeer.SendPacket(new StartSessionResponsePacket
+                                {
+                                    Id = 0,
+                                    StartPeers = lobby.Peers,
+                                    SuccessMessage = $"Starting lobby '{lobby.LobbyCode}' with peers: [{peerIDs}]",
+                                });
+                            }
+                            
+                            GD.Print($"[Log] Starting session from lobby '{lobby.LobbyCode}'");
+                            return true;
+                        })
+                        .Single();
+                    
+                        if (!foundLobby)
+                        {
+                            GD.Print("[Error] Could not find lobby to start session from!");
+                        }
+                    break; 
+                }
+                default:
+                    return false;
+            }
+        }
         return true;
     }
 
@@ -364,7 +445,10 @@ public partial class Server : Node
 
     private Option<Lobby> FindLobbyByPeer(Peer peer)
     {
-        foreach (var lobby in from Lobby lobby in _lobbies from Peer lobbyPeer in lobby.Peers where lobbyPeer.Equals(peer) select lobby)
+        foreach (var lobby in from Lobby lobby in _lobbies
+                 from Peer lobbyPeer in lobby.Peers
+                 where lobbyPeer.Equals(peer)
+                 select lobby)
         {
             return Option<Lobby>.Create(lobby);
         }
@@ -372,9 +456,9 @@ public partial class Server : Node
         return Option<Lobby>.CreateEmpty();
     }
 
-    private Option<Lobby> FindLobbyByName(string lobbyName)
+    private Option<Lobby> FindLobbyByCode(string lobbyCode)
     {
-        foreach (var lobby in from Lobby lobby in _lobbies where lobby.Name == lobbyName select lobby)
+        foreach (var lobby in from Lobby lobby in _lobbies where lobby.LobbyCode == lobbyCode select lobby)
         {
             return Option<Lobby>.Create(lobby);
         }

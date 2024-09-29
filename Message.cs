@@ -8,7 +8,7 @@ public enum Message
     JoinLobby,
     LeaveLobby,
     LobbyMessage,
-    GameStartUnused,
+    LobbyDescription,
     Offer,
     Answer,
     InteractiveConnectivityEstablishment,
