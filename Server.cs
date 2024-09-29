@@ -137,14 +137,13 @@ public partial class Server : Node
 
         if (packet is UserInfoPacket userInfoPacket)
         {
-            fromPeer.SendPacket(new BasicResponsePacket
+            fromPeer.SendPacket(new UserInfoPacket
             {
-                Message = Message.UserInfo,
-                Success = true,
-                SuccessMessage = $"Server received user information for {userInfoPacket.Username}!",
+                Id = fromPeer.Id,
+                Username = userInfoPacket.Username
             });
             fromPeer.Username = userInfoPacket.Username;
-            GD.Print($"[Log] Received Username: {fromPeer.Username}");
+            GD.Print($"[Log] Peer login: {fromPeer.Username}:{fromPeer.Id}");
         }
         else if (packet is JoinLobbyPacket joinLobbyPacket)
         {

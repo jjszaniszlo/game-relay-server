@@ -16,7 +16,7 @@ public partial class Peer : RefCounted
         
         Id = id;
         var error = WebSocketPeer.AcceptStream(tcp);
-        GD.Print(error is Error.Ok ? "Peer connection accepted!" : "[ERROR] Cannot accept connection!");
+        GD.Print(error is Error.Ok ? "[Log] Peer connection accepted!" : "[ERROR] Cannot accept connection!");
     }
     
     public Error SendPacket(BasicPacket packet)
