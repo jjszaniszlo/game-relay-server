@@ -5,28 +5,22 @@ namespace horrorgameserverrelay;
 
 public partial class Peer : RefCounted
 {
-    public int Id { get; private set; }
-    public WebSocketPeer WebSocketPeer { get; private set; }
-    public bool IsHost { get; set; }
-    public string UserName { get; set; }
+    [JsonIgnore] public WebSocketPeer WebSocketPeer { get; private set; }
+    [JsonIgnore] public bool IsHost { get; set; }
+    [JsonProperty("id")] public int Id { get; private set; }
+    [JsonProperty("username")] public string Username { get; set; }
 
     public Peer(int id, StreamPeer tcp)
     {
         WebSocketPeer = new WebSocketPeer();
         
-        this.Id = id;
+        Id = id;
         var error = WebSocketPeer.AcceptStream(tcp);
-        GD.Print(error is Error.Ok ? "Peer connection accepted!" : "[ERROR] Cannot accept connection!");
+        GD.Print(error is Error.Ok ? "[Log] Peer connection accepted!" : "[ERROR] Cannot accept connection!");
     }
     
-    public Error SendMessage(Message message, int id, string data)
+    public Error SendPacket(BasicPacket packet)
     {
-        var packet = new Packet
-        {
-            type = message,
-            id = id,
-            data = data
-        };
         return WebSocketPeer.SendText(JsonConvert.SerializeObject(packet));
     }
 
