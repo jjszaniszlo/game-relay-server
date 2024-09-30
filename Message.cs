@@ -6,6 +6,8 @@ public enum Message
     LobbyList,
     CreateLobby,
     JoinLobby,
+    JoinLobbyExistingUsers,
+    JoinLobbyEnteringUser,
     LeaveLobby,
     LobbyMessage,
     LobbyDescription,

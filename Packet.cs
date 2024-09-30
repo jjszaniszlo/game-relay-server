@@ -67,15 +67,20 @@ public partial class JoinLobbyPacket : BasicPacket
     }
 }
 
-public abstract partial class JoinLobbyResponsePacket : BasicResponsePacket
+public partial class JoinLobbyResponsePacket : BasicResponsePacket
 {
     [JsonProperty("type")] public string Type { get; set; }
+
+    public JoinLobbyResponsePacket()
+    {
+        Message = Message.JoinLobby;
+    }
 }
 
 // response packet for the player joining the lobby
 public partial class JoinLobbyJoiningUserResponsePacket : JoinLobbyResponsePacket
 {
-    [JsonProperty("lobbyPeers")] public List<Peer> LobbyPeers { get; set; }
+    [JsonProperty("lobby_peers")] public List<Peer> LobbyPeers { get; set; }
     public JoinLobbyJoiningUserResponsePacket()
     {
         Message = Message.JoinLobby;
@@ -84,10 +89,10 @@ public partial class JoinLobbyJoiningUserResponsePacket : JoinLobbyResponsePacke
 }
 
 // response packet for the players already in the lobby
-public partial class JoinLobbyExistingUserResponsePacket : JoinLobbyResponsePacket 
+public partial class JoinLobbyExistingUsersResponsePacket : JoinLobbyResponsePacket 
 {
-    [JsonProperty("joiningPeer")] public Peer JoiningPeer { get; set; }
-    public JoinLobbyExistingUserResponsePacket()
+    [JsonProperty("joining_peer")] public Peer JoiningPeer { get; set; }
+    public JoinLobbyExistingUsersResponsePacket()
     {
         Message = Message.JoinLobby;
         Type = "ExistingUser";

@@ -127,7 +127,6 @@ public partial class Server : Node
     private bool ParseMessage(Peer fromPeer)
     {
         var packetBuffer = fromPeer.WebSocketPeer.GetPacket().GetStringFromUtf8();
-
         var packet = JsonConvert.DeserializeObject<BasicPacket>(packetBuffer, new JsonPacketConverter());
 
         if (packet is null)
@@ -137,6 +136,7 @@ public partial class Server : Node
 
         if (packet is UserInfoPacket userInfoPacket)
         {
+            
             fromPeer.SendPacket(new UserInfoPacket
             {
                 Id = fromPeer.Id,
@@ -161,9 +161,8 @@ public partial class Server : Node
                     });
 
                     // send response packet that lobby was found
-                    fromPeer.SendPacket(new BasicResponsePacket
+                    fromPeer.SendPacket(new JoinLobbyResponsePacket 
                     {
-                        Message = Message.JoinLobby,
                         Id = 0,
                         SuccessMessage = $"Lobby '{lobby.LobbyCode}' found!",
                     });
@@ -171,7 +170,7 @@ public partial class Server : Node
                     // for each lobby peer send the information of the peer that is joining.
                     foreach (var lobbyPeer in lobby.Peers)
                     {
-                        lobbyPeer.SendPacket(new JoinLobbyExistingUserResponsePacket
+                        lobbyPeer.SendPacket(new JoinLobbyExistingUsersResponsePacket
                         {
                             Id = fromPeer.Id,
                             JoiningPeer = fromPeer,
@@ -198,7 +197,7 @@ public partial class Server : Node
             {
                 GD.Print(
                     $"[Error] Peer {fromPeer.Username}:{fromPeer.Id} attempted to join lobby '{joinLobbyPacket.LobbyCode}', but no such lobby exists!");
-                fromPeer.SendPacket(new JoinLobbyJoiningUserResponsePacket
+                fromPeer.SendPacket(new JoinLobbyResponsePacket 
                 {
                     Id = 0,
                     Success = false,
